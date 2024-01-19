@@ -5,7 +5,7 @@ import {
 
 import {
   STSClient,
-  AssumeRoleCommand
+  AssumeRoleCommand,
 } from '@aws-sdk/client-sts';
 
 import { Amplify, withSSRContext } from 'aws-amplify';
@@ -16,6 +16,8 @@ Amplify.configure({
   ...awsExports,
   ssr: true
 });
+
+const crossAccountRole=process.env.X_ACCOUNT_ROLE;
 
 export default async function handler(
   req: NextApiRequest,
@@ -31,25 +33,23 @@ export default async function handler(
   });
   const command = new AssumeRoleCommand(
     {
-      RoleArn: "arn:aws:iam::992382561684:role/WorkshopBedrockCrossAccountAccess",
+      RoleArn: crossAccountRole,
       RoleSessionName:"SessName"
     });
   const assumeResponse = await stsClient.send(command);
-  console.log("Creds from assuming ",assumeResponse.Credentials);
+  
+  const newCreds = {
+    accessKeyId: assumeResponse.Credentials?.AccessKeyId as string,
+    secretAccessKey: assumeResponse.Credentials?.SecretAccessKey as string,
+    sessionToken: assumeResponse.Credentials?.SessionToken as string,
+  }
 
-  const accessKeyId = JSON.stringify(assumeResponse.Credentials?.AccessKeyId)
-  const secretAccessKey = JSON.stringify(assumeResponse.Credentials?.SecretAccessKey)
-  const sessionToken = JSON.stringify(assumeResponse.Credentials?.SessionToken)
-  const expiration = JSON.stringify(assumeResponse.Credentials?.Expiration)
+  console.log("Creds passed ", newCreds);  
 
   const bedrock = new BedrockRuntimeClient({
     serviceId: 'bedrock',
     region: 'us-east-1',
-    credentials:{
-      accessKeyId:accessKeyId,
-      secretAccessKey:secretAccessKey,
-      sessionToken:sessionToken, 
-    }
+    credentials:newCreds
   });
   
 
@@ -86,8 +86,12 @@ export default async function handler(
       })
     })
   );
+
+  const stringResult = new TextDecoder().decode(result.body);
+  console.log("Result is ", stringResult)
+
   // The response is a Uint8Array of a stringified JSON blob
   // so you need to first decode the Uint8Array to a string
   // then parse the string.
-  res.status(200).json(JSON.parse(new TextDecoder().decode(result.body)));
+  res.status(200).json(JSON.parse(stringResult));
 }
